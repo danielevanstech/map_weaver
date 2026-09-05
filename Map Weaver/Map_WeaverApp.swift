@@ -19,6 +19,9 @@ struct Map_WeaverApp: App {
             MapLayer.self,
             PlacedTile.self,
             TileAsset.self,
+            ProjectFolder.self,
+            TextAnnotation.self,
+            DrawingStroke.self,
         ])
         let modelConfiguration = ModelConfiguration(
             schema: schema,
@@ -28,7 +31,19 @@ struct Map_WeaverApp: App {
         do {
             return try ModelContainer(for: schema, configurations: [modelConfiguration])
         } catch {
-            fatalError("Could not create ModelContainer: \(error)")
+            // Schema migration failed — delete the old store and retry
+            if let appSupportURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+                let storeURL = appSupportURL.appendingPathComponent("default.store")
+                for suffix in ["", "-wal", "-shm"] {
+                    let fileURL = storeURL.deletingPathExtension().appendingPathExtension("store\(suffix)")
+                    try? FileManager.default.removeItem(at: fileURL)
+                }
+            }
+            do {
+                return try ModelContainer(for: schema, configurations: [modelConfiguration])
+            } catch {
+                fatalError("Could not create ModelContainer: \(error)")
+            }
         }
     }()
 

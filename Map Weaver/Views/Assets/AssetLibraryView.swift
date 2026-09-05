@@ -19,65 +19,68 @@ struct AssetLibraryView: View {
         return project.assets.sorted { $0.createdAt < $1.createdAt }
     }
 
-    var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            HStack {
-                Text("Tile Assets")
-                    .font(.headline)
-                Spacer()
-                Button {
-                    showingImport = true
-                } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.title3)
-                }
-            }
-            .padding(.horizontal)
-            .padding(.vertical, 8)
+    @Environment(\.dismiss) private var dismiss
 
-            // Category filter
-            if !categories.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        CategoryChip(title: "All", isSelected: selectedCategory == nil) {
-                            selectedCategory = nil
-                        }
-                        ForEach(categories, id: \.self) { category in
-                            CategoryChip(title: category, isSelected: selectedCategory == category) {
-                                selectedCategory = category
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                // Category filter
+                if !categories.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            CategoryChip(title: "All", isSelected: selectedCategory == nil) {
+                                selectedCategory = nil
+                            }
+                            ForEach(categories, id: \.self) { category in
+                                CategoryChip(title: category, isSelected: selectedCategory == category) {
+                                    selectedCategory = category
+                                }
                             }
                         }
+                        .padding(.horizontal)
                     }
-                    .padding(.horizontal)
+                    .padding(.bottom, 8)
                 }
-                .padding(.bottom, 8)
-            }
 
-            // Asset grid
-            if filteredAssets.isEmpty {
-                ContentUnavailableView {
-                    Label("No Assets", systemImage: "photo.on.rectangle")
-                } description: {
-                    Text("Import photos to use as map tiles.")
-                }
-                .frame(maxHeight: .infinity)
-            } else {
-                ScrollView {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 60), spacing: 8)], spacing: 8) {
-                        ForEach(filteredAssets) { asset in
-                            AssetThumbnailView(asset: asset, isSelected: selectedAsset?.id == asset.id)
-                                .onTapGesture {
-                                    selectedAsset = asset
-                                }
-                        }
+                // Asset grid
+                if filteredAssets.isEmpty {
+                    ContentUnavailableView {
+                        Label("No Assets", systemImage: "photo.on.rectangle")
+                    } description: {
+                        Text("Import photos to use as map tiles.")
                     }
-                    .padding(.horizontal)
+                    .frame(maxHeight: .infinity)
+                } else {
+                    ScrollView {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 76), spacing: 10)], spacing: 10) {
+                            ForEach(filteredAssets) { asset in
+                                AssetThumbnailView(asset: asset, isSelected: selectedAsset?.id == asset.id)
+                                    .onTapGesture {
+                                        selectedAsset = asset
+                                    }
+                            }
+                        }
+                        .padding(.horizontal)
+                    }
                 }
             }
-        }
-        .sheet(isPresented: $showingImport) {
-            AssetImportView(project: project)
+            .navigationTitle("Tile Assets")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button {
+                        showingImport = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+            .sheet(isPresented: $showingImport) {
+                AssetImportView(project: project)
+            }
         }
     }
 }
@@ -90,10 +93,10 @@ struct CategoryChip: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.caption)
+                .font(.subheadline)
                 .fontWeight(isSelected ? .semibold : .regular)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
                 .background(isSelected ? Color.blue : Color.secondary.opacity(0.2))
                 .foregroundStyle(isSelected ? .white : .primary)
                 .clipShape(Capsule())

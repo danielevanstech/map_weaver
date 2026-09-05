@@ -4,6 +4,7 @@ import SwiftData
 struct FolderContentView: View {
     @Bindable var folder: ProjectFolder
     @Environment(\.modelContext) private var modelContext
+    @Query(sort: \ProjectFolder.createdAt) private var allFolders: [ProjectFolder]
 
     @State private var showingNewProjectSheet = false
     @State private var newProjectName = ""
@@ -29,10 +30,27 @@ struct FolderContentView: View {
                         }
                         .contextMenu {
                             Button {
-                                project.folder = nil
-                                project.modifiedAt = Date()
+                                withAnimation {
+                                    project.folder = nil
+                                    project.modifiedAt = Date()
+                                }
                             } label: {
                                 Label("Move to Top Level", systemImage: "arrow.up.doc")
+                            }
+                            let otherFolders = allFolders.filter { $0.id != folder.id }
+                            if !otherFolders.isEmpty {
+                                Menu {
+                                    ForEach(otherFolders) { target in
+                                        Button(target.name) {
+                                            withAnimation {
+                                                project.folder = target
+                                                project.modifiedAt = Date()
+                                            }
+                                        }
+                                    }
+                                } label: {
+                                    Label("Move to Folder", systemImage: "folder")
+                                }
                             }
                         }
                     }
@@ -66,8 +84,16 @@ struct FolderContentView: View {
         guard !trimmed.isEmpty else { return }
         withAnimation {
             let project = MapProject(name: trimmed, gridCellSize: newProjectGridSize)
+            let gridLayer = MapLayer(name: "Grid", sortOrder: -2, layerTypeRaw: LayerType.grid.rawValue)
+            gridLayer.opacity = 0.3
+            gridLayer.isLocked = true
+            let bgLayer = MapLayer(name: "Background", sortOrder: -1, layerTypeRaw: LayerType.background.rawValue)
+            bgLayer.opacity = 0.3
+            bgLayer.isLocked = true
             let groundLayer = MapLayer(name: "Ground", sortOrder: 0)
-            project.layers.append(groundLayer)
+            let drawingLayer = MapLayer(name: "Drawing", sortOrder: 1, layerTypeRaw: LayerType.drawing.rawValue)
+            let textLayer = MapLayer(name: "Text", sortOrder: 2, layerTypeRaw: LayerType.text.rawValue)
+            project.layers.append(contentsOf: [gridLayer, bgLayer, groundLayer, drawingLayer, textLayer])
             project.folder = folder
             modelContext.insert(project)
         }

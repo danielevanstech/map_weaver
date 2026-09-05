@@ -27,16 +27,16 @@ enum ExportService {
         guard !allTiles.isEmpty else { return .empty }
 
         let minX = allTiles.map(\.gridX).min()!
-        let maxX = allTiles.map(\.gridX).max()!
+        let maxX = allTiles.map { $0.gridX + ($0.asset?.gridWidth ?? 1) - 1 }.max()!
         let minY = allTiles.map(\.gridY).min()!
-        let maxY = allTiles.map(\.gridY).max()!
+        let maxY = allTiles.map { $0.gridY + ($0.asset?.gridHeight ?? 1) - 1 }.max()!
 
         return MapBounds(minX: minX, maxX: maxX, minY: minY, maxY: maxY)
     }
 
     // MARK: - Render Tiles
 
-    private static func renderTiles(
+    private static func renderContent(
         project: MapProject,
         bounds: MapBounds,
         cellSize: CGFloat,
@@ -49,15 +49,70 @@ enum ExportService {
 
             cgContext.setAlpha(layer.opacity)
 
-            for tile in layer.placedTiles {
-                guard let asset = tile.asset else { continue }
+            switch layer.layerType {
+            case .tile:
+                for tile in layer.placedTiles {
+                    guard let asset = tile.asset else { continue }
 
-                let x = CGFloat(tile.gridX - bounds.minX) * cellSize
-                let y = CGFloat(tile.gridY - bounds.minY) * cellSize
-                let rect = CGRect(x: x, y: y, width: cellSize, height: cellSize)
+                    let x = CGFloat(tile.gridX - bounds.minX) * cellSize
+                    let y = CGFloat(tile.gridY - bounds.minY) * cellSize
+                    let tw = CGFloat(asset.gridWidth) * cellSize
+                    let th = CGFloat(asset.gridHeight) * cellSize
+                    let rect = CGRect(x: x, y: y, width: tw, height: th)
 
-                if let image = ImageCache.shared.image(for: asset) {
-                    image.draw(in: rect)
+                    if let image = ImageCache.shared.image(for: asset) {
+                        image.draw(in: rect)
+                    }
+                }
+
+            case .text:
+                for annotation in layer.textAnnotations {
+                    let x = CGFloat(annotation.canvasX) - CGFloat(bounds.minX) * cellSize
+                    let y = CGFloat(annotation.canvasY) - CGFloat(bounds.minY) * cellSize
+                    let color = UIColor(
+                        red: annotation.colorRed,
+                        green: annotation.colorGreen,
+                        blue: annotation.colorBlue,
+                        alpha: annotation.colorAlpha
+                    )
+                    let attributes: [NSAttributedString.Key: Any] = [
+                        .font: UIFont.systemFont(ofSize: annotation.fontSize),
+                        .foregroundColor: color
+                    ]
+                    (annotation.text as NSString).draw(at: CGPoint(x: x, y: y), withAttributes: attributes)
+                }
+
+            case .background, .grid:
+                break // Background is screen-space; grid is rendered separately
+
+            case .drawing:
+                for stroke in layer.drawingStrokes {
+                    let points = stroke.points
+                    guard points.count >= 2 else { continue }
+
+                    let color = UIColor(
+                        red: stroke.colorRed,
+                        green: stroke.colorGreen,
+                        blue: stroke.colorBlue,
+                        alpha: stroke.colorAlpha
+                    )
+                    cgContext.setStrokeColor(color.cgColor)
+                    cgContext.setLineWidth(stroke.lineWidth)
+                    cgContext.setLineCap(.round)
+                    cgContext.setLineJoin(.round)
+
+                    let first = points[0]
+                    cgContext.move(to: CGPoint(
+                        x: first.x - Double(bounds.minX) * Double(cellSize),
+                        y: first.y - Double(bounds.minY) * Double(cellSize)
+                    ))
+                    for i in 1..<points.count {
+                        cgContext.addLine(to: CGPoint(
+                            x: points[i].x - Double(bounds.minX) * Double(cellSize),
+                            y: points[i].y - Double(bounds.minY) * Double(cellSize)
+                        ))
+                    }
+                    cgContext.strokePath()
                 }
             }
 
@@ -65,13 +120,15 @@ enum ExportService {
         }
 
         // Draw grid if enabled
-        if project.showGridLines {
+        if let gridLayer = project.gridLayer, gridLayer.isVisible {
+            cgContext.setAlpha(gridLayer.opacity)
             drawGridForExport(
                 bounds: bounds,
                 cellSize: cellSize,
                 in: cgContext,
-                showLabels: project.showCoordinateLabels
+                gridLayer: gridLayer
             )
+            cgContext.setAlpha(1.0)
         }
     }
 
@@ -79,10 +136,16 @@ enum ExportService {
         bounds: MapBounds,
         cellSize: CGFloat,
         in cgContext: CGContext,
-        showLabels: Bool
+        gridLayer: MapLayer
     ) {
-        cgContext.setStrokeColor(UIColor.gray.withAlphaComponent(0.3).cgColor)
-        cgContext.setLineWidth(0.5)
+        let color = UIColor(
+            red: gridLayer.gridColorRed,
+            green: gridLayer.gridColorGreen,
+            blue: gridLayer.gridColorBlue,
+            alpha: gridLayer.gridColorAlpha
+        )
+        cgContext.setStrokeColor(color.cgColor)
+        cgContext.setLineWidth(gridLayer.gridLineWidth)
 
         let totalWidth = CGFloat(bounds.width) * cellSize
         let totalHeight = CGFloat(bounds.height) * cellSize
@@ -104,10 +167,16 @@ enum ExportService {
         cgContext.strokePath()
 
         // Coordinate labels
-        if showLabels {
+        if gridLayer.gridShowCoordinateLabels {
+            let labelColor = UIColor(
+                red: gridLayer.gridColorRed,
+                green: gridLayer.gridColorGreen,
+                blue: gridLayer.gridColorBlue,
+                alpha: gridLayer.gridColorAlpha * 0.7
+            )
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: UIFont.monospacedSystemFont(ofSize: max(8, cellSize * 0.15), weight: .medium),
-                .foregroundColor: UIColor.gray.withAlphaComponent(0.6)
+                .foregroundColor: labelColor
             ]
 
             for col in 0..<bounds.width {
@@ -137,7 +206,7 @@ enum ExportService {
 
         return renderer.pdfData { context in
             context.beginPage()
-            renderTiles(project: project, bounds: bounds, cellSize: cellSize, in: context.cgContext)
+            renderContent(project: project, bounds: bounds, cellSize: cellSize, in: context.cgContext)
         }
     }
 
@@ -156,72 +225,27 @@ enum ExportService {
             // Fill background
             UIColor.white.setFill()
             context.fill(CGRect(origin: .zero, size: size))
-            renderTiles(project: project, bounds: bounds, cellSize: cellSize, in: context.cgContext)
+            renderContent(project: project, bounds: bounds, cellSize: cellSize, in: context.cgContext)
         }
     }
 
-    // MARK: - .mapweaver Bundle Export (JSON + ZIP)
+    // MARK: - .mapweaver Bundle Export (Self-Contained JSON with Embedded Images)
 
     static func exportBundle(project: MapProject) throws -> URL {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("mapweaver-export-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-
-        // Build export model
         let exportModel = MapExportModel(project: project)
-        let jsonData = try JSONEncoder().encode(exportModel)
-        try jsonData.write(to: tempDir.appendingPathComponent("map.json"))
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let jsonData = try encoder.encode(exportModel)
 
-        // Copy images
-        let imagesDir = tempDir.appendingPathComponent("images")
-        try FileManager.default.createDirectory(at: imagesDir, withIntermediateDirectories: true)
-
-        for asset in project.assets {
-            let sourceURL = ImageStore.shared.url(for: asset)
-            let destURL = imagesDir.appendingPathComponent("\(asset.id.uuidString).png")
-            if FileManager.default.fileExists(atPath: sourceURL.path) {
-                try FileManager.default.copyItem(at: sourceURL, to: destURL)
-            }
-        }
-
-        // ZIP using NSFileCoordinator
-        let zipURL = FileManager.default.temporaryDirectory
+        let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("\(project.name).mapweaver")
 
-        // Remove existing file if any
-        if FileManager.default.fileExists(atPath: zipURL.path) {
-            try FileManager.default.removeItem(at: zipURL)
+        if FileManager.default.fileExists(atPath: tempURL.path) {
+            try FileManager.default.removeItem(at: tempURL)
         }
 
-        var coordinatorError: NSError?
-        var resultURL: URL?
-
-        let coordinator = NSFileCoordinator()
-        coordinator.coordinate(
-            readingItemAt: tempDir,
-            options: .forUploading,
-            error: &coordinatorError
-        ) { actualZipURL in
-            do {
-                try FileManager.default.copyItem(at: actualZipURL, to: zipURL)
-                resultURL = zipURL
-            } catch {
-                print("Failed to copy ZIP: \(error)")
-            }
-        }
-
-        // Clean up temp directory
-        try? FileManager.default.removeItem(at: tempDir)
-
-        if let error = coordinatorError {
-            throw error
-        }
-
-        guard let finalURL = resultURL else {
-            throw ExportError.zipFailed
-        }
-
-        return finalURL
+        try jsonData.write(to: tempURL)
+        return tempURL
     }
 }
 
@@ -247,14 +271,18 @@ struct MapExportModel: Codable {
     let layers: [LayerExportData]
     let assets: [AssetExportData]
     let tiles: [TileExportData]
+    let textAnnotations: [TextAnnotationExportData]?
+    let drawingStrokes: [DrawingStrokeExportData]?
 
     init(project: MapProject) {
-        self.version = 1
+        self.version = 2
         self.project = ProjectExportData(
             name: project.name,
             gridCellSize: project.gridCellSize,
             showGridLines: project.showGridLines,
-            showCoordinateLabels: project.showCoordinateLabels
+            showCoordinateLabels: project.showCoordinateLabels,
+            backgroundDisplayModeRaw: project.backgroundDisplayModeRaw,
+            backgroundOpacity: project.backgroundLayer?.opacity ?? project.backgroundOpacity
         )
         self.layers = project.layers.map { layer in
             LayerExportData(
@@ -263,14 +291,29 @@ struct MapExportModel: Codable {
                 sortOrder: layer.sortOrder,
                 isVisible: layer.isVisible,
                 isLocked: layer.isLocked,
-                opacity: layer.opacity
+                opacity: layer.opacity,
+                layerTypeRaw: layer.layerTypeRaw,
+                gridLineWidth: layer.layerType == .grid ? layer.gridLineWidth : nil,
+                gridColorRed: layer.layerType == .grid ? layer.gridColorRed : nil,
+                gridColorGreen: layer.layerType == .grid ? layer.gridColorGreen : nil,
+                gridColorBlue: layer.layerType == .grid ? layer.gridColorBlue : nil,
+                gridColorAlpha: layer.layerType == .grid ? layer.gridColorAlpha : nil,
+                gridShowCoordinateLabels: layer.layerType == .grid ? layer.gridShowCoordinateLabels : nil
             )
         }
         self.assets = project.assets.map { asset in
-            AssetExportData(
+            let imageBase64: String?
+            if let image = ImageStore.shared.loadImage(for: asset),
+               let pngData = image.pngData() {
+                imageBase64 = pngData.base64EncodedString()
+            } else {
+                imageBase64 = nil
+            }
+            return AssetExportData(
                 id: asset.id.uuidString,
                 name: asset.name,
                 imageFile: "images/\(asset.id.uuidString).png",
+                imageData: imageBase64,
                 gridWidth: asset.gridWidth,
                 gridHeight: asset.gridHeight,
                 hasTransparency: asset.hasTransparency,
@@ -288,6 +331,34 @@ struct MapExportModel: Codable {
                 )
             }
         }
+        self.textAnnotations = project.layers.flatMap { layer in
+            layer.textAnnotations.map { annotation in
+                TextAnnotationExportData(
+                    canvasX: annotation.canvasX,
+                    canvasY: annotation.canvasY,
+                    text: annotation.text,
+                    fontSize: annotation.fontSize,
+                    colorRed: annotation.colorRed,
+                    colorGreen: annotation.colorGreen,
+                    colorBlue: annotation.colorBlue,
+                    colorAlpha: annotation.colorAlpha,
+                    layerId: layer.id.uuidString
+                )
+            }
+        }
+        self.drawingStrokes = project.layers.flatMap { layer in
+            layer.drawingStrokes.map { stroke in
+                DrawingStrokeExportData(
+                    pointsData: stroke.pointsData.base64EncodedString(),
+                    colorRed: stroke.colorRed,
+                    colorGreen: stroke.colorGreen,
+                    colorBlue: stroke.colorBlue,
+                    colorAlpha: stroke.colorAlpha,
+                    lineWidth: stroke.lineWidth,
+                    layerId: layer.id.uuidString
+                )
+            }
+        }
     }
 }
 
@@ -296,6 +367,8 @@ struct ProjectExportData: Codable {
     let gridCellSize: Int
     let showGridLines: Bool
     let showCoordinateLabels: Bool
+    let backgroundDisplayModeRaw: Int?
+    let backgroundOpacity: Double?
 }
 
 struct LayerExportData: Codable {
@@ -305,12 +378,22 @@ struct LayerExportData: Codable {
     let isVisible: Bool
     let isLocked: Bool
     let opacity: Double
+    let layerTypeRaw: Int?
+    // Grid layer properties (nil for non-grid layers)
+    let gridLineWidth: Double?
+    let gridColorRed: Double?
+    let gridColorGreen: Double?
+    let gridColorBlue: Double?
+    let gridColorAlpha: Double?
+    let gridShowCoordinateLabels: Bool?
 }
 
 struct AssetExportData: Codable {
     let id: String
     let name: String
     let imageFile: String
+    /// Base64-encoded PNG image data (embedded for portability)
+    let imageData: String?
     let gridWidth: Int
     let gridHeight: Int
     let hasTransparency: Bool
@@ -322,4 +405,26 @@ struct TileExportData: Codable {
     let gridY: Int
     let layerId: String
     let assetId: String
+}
+
+struct TextAnnotationExportData: Codable {
+    let canvasX: Double
+    let canvasY: Double
+    let text: String
+    let fontSize: Double
+    let colorRed: Double
+    let colorGreen: Double
+    let colorBlue: Double
+    let colorAlpha: Double
+    let layerId: String
+}
+
+struct DrawingStrokeExportData: Codable {
+    let pointsData: String
+    let colorRed: Double
+    let colorGreen: Double
+    let colorBlue: Double
+    let colorAlpha: Double
+    let lineWidth: Double
+    let layerId: String
 }

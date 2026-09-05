@@ -32,6 +32,24 @@ final class ImageCache: @unchecked Sendable {
         cache.removeObject(forKey: asset.id.uuidString as NSString)
     }
 
+    // MARK: - Background Images
+
+    func backgroundImage(for projectID: UUID, fileName: String) -> UIImage? {
+        let key = "bg-\(projectID.uuidString)" as NSString
+
+        if let cached = cache.object(forKey: key) {
+            return cached
+        }
+
+        guard let loaded = ImageStore.shared.loadBackgroundImage(fileName: fileName) else { return nil }
+        cache.setObject(loaded, forKey: key)
+        return loaded
+    }
+
+    func invalidateBackgroundImage(for projectID: UUID) {
+        cache.removeObject(forKey: "bg-\(projectID.uuidString)" as NSString)
+    }
+
     func clearAll() {
         cache.removeAllObjects()
     }

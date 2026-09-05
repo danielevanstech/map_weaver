@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 struct CropResizeView: View {
     let sourceImage: UIImage
@@ -16,8 +17,11 @@ struct CropResizeView: View {
     @State private var cropRect: CGRect = .zero
     @State private var imageDisplaySize: CGSize = .zero
     @State private var useAutoFit = false
+    @State private var croppedImage: UIImage?
+    @State private var showInteractiveCrop = false
 
     @State private var isSaving = false
+    @State private var errorMessage: String?
 
     private let predefinedCategories = ["Ground", "Walls", "Trees", "Enemies", "Items", "Effects"]
 
@@ -25,9 +29,27 @@ struct CropResizeView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
-                    // Image preview with crop rect
+                    // Image preview
                     imagePreview
                         .padding(.horizontal)
+
+                    // Crop controls
+                    HStack {
+                        Button {
+                            showInteractiveCrop = true
+                        } label: {
+                            Label("Crop", systemImage: "crop")
+                        }
+                        .buttonStyle(.bordered)
+
+                        if croppedImage != nil {
+                            Button("Reset Crop", role: .destructive) {
+                                croppedImage = nil
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
+                    .padding(.horizontal)
 
                     // Grid size picker
                     gridSizePicker
@@ -86,19 +108,44 @@ struct CropResizeView: View {
             .onAppear {
                 assetName = "Tile \(project.assets.count + 1)"
             }
+            .alert("Save Error", isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
+            )) {
+                Button("OK") { errorMessage = nil }
+            } message: {
+                Text(errorMessage ?? "")
+            }
+            .fullScreenCover(isPresented: $showInteractiveCrop) {
+                InteractiveCropView(
+                    sourceImage: sourceImage,
+                    targetAspectRatio: CGFloat(gridWidth) / CGFloat(gridHeight),
+                    onCrop: { cropped in
+                        croppedImage = cropped
+                        showInteractiveCrop = false
+                    },
+                    onCancel: {
+                        showInteractiveCrop = false
+                    }
+                )
+            }
         }
     }
 
     // MARK: - Image Preview
 
+    private var displayImage: UIImage {
+        croppedImage ?? sourceImage
+    }
+
     private var imagePreview: some View {
         GeometryReader { geometry in
             let containerWidth = geometry.size.width
-            let imageAspect = sourceImage.size.width / sourceImage.size.height
+            let imageAspect = displayImage.size.width / displayImage.size.height
             let displayWidth = containerWidth
             let displayHeight = displayWidth / imageAspect
 
-            Image(uiImage: sourceImage)
+            Image(uiImage: displayImage)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(width: displayWidth, height: displayHeight)
@@ -111,7 +158,7 @@ struct CropResizeView: View {
                     imageDisplaySize = CGSize(width: displayWidth, height: displayHeight)
                 }
         }
-        .aspectRatio(sourceImage.size.width / sourceImage.size.height, contentMode: .fit)
+        .aspectRatio(displayImage.size.width / displayImage.size.height, contentMode: .fit)
     }
 
     // MARK: - Grid Size Picker
@@ -181,12 +228,13 @@ struct CropResizeView: View {
             height: cellSize * CGFloat(gridHeight)
         )
 
-        // Process the image
+        // Process the image (use cropped image if available)
+        let baseImage = displayImage
         let processedImage: UIImage
         if useAutoFit {
-            processedImage = sourceImage.autoFit(to: targetSize)
+            processedImage = baseImage.autoFit(to: targetSize)
         } else {
-            processedImage = sourceImage.resized(to: targetSize)
+            processedImage = baseImage.resized(to: targetSize)
         }
 
         // Create the asset
@@ -217,7 +265,7 @@ struct CropResizeView: View {
 
             onComplete()
         } catch {
-            print("Failed to save asset: \(error)")
+            errorMessage = "Failed to save tile asset: \(error.localizedDescription)"
             isSaving = false
         }
     }

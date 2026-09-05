@@ -108,17 +108,16 @@ struct ExportMenuView: View {
         isExporting = true
         exportError = nil
 
-        Task.detached {
-            let data = ExportService.exportPDF(project: project)
+        let proj = project
+        Task { @MainActor in
+            let data = ExportService.exportPDF(project: proj)
             let tempURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("\(project.name).pdf")
+                .appendingPathComponent("\(proj.name).pdf")
             try? data.write(to: tempURL)
 
-            await MainActor.run {
-                isExporting = false
-                exportedFileURL = tempURL
-                showingShareSheet = true
-            }
+            isExporting = false
+            exportedFileURL = tempURL
+            showingShareSheet = true
         }
     }
 
@@ -126,17 +125,16 @@ struct ExportMenuView: View {
         isExporting = true
         exportError = nil
 
-        Task.detached {
-            let data = ExportService.exportJPEG(project: project)
+        let proj = project
+        Task { @MainActor in
+            let data = ExportService.exportJPEG(project: proj)
             let tempURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("\(project.name).jpg")
+                .appendingPathComponent("\(proj.name).jpg")
             try? data.write(to: tempURL)
 
-            await MainActor.run {
-                isExporting = false
-                exportedFileURL = tempURL
-                showingShareSheet = true
-            }
+            isExporting = false
+            exportedFileURL = tempURL
+            showingShareSheet = true
         }
     }
 
@@ -144,19 +142,16 @@ struct ExportMenuView: View {
         isExporting = true
         exportError = nil
 
-        Task.detached {
+        let proj = project
+        Task { @MainActor in
             do {
-                let url = try ExportService.exportBundle(project: project)
-                await MainActor.run {
-                    isExporting = false
-                    exportedFileURL = url
-                    showingShareSheet = true
-                }
+                let url = try ExportService.exportBundle(project: proj)
+                isExporting = false
+                exportedFileURL = url
+                showingShareSheet = true
             } catch {
-                await MainActor.run {
-                    isExporting = false
-                    exportError = error.localizedDescription
-                }
+                isExporting = false
+                exportError = error.localizedDescription
             }
         }
     }

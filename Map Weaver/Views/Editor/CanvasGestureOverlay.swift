@@ -11,9 +11,11 @@ struct CanvasGestureOverlay: UIViewRepresentable {
     let viewModel: MapEditorViewModel
     let cellSize: CGFloat
     let onSingleTap: (CGPoint) -> Void
-    let onDoubleTap: (CGPoint) -> Void
     let onLongPress: (CGPoint) -> Void
     let onTileDragEnded: () -> Void
+    var onStrokeCompleted: () -> Void = {}
+    var onTextDragEnded: () -> Void = {}
+    var onStrokeDragEnded: () -> Void = {}
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -37,21 +39,15 @@ struct CanvasGestureOverlay: UIViewRepresentable {
         pan.delegate = c
         view.addGestureRecognizer(pan)
 
-        // Double tap (select / deselect)
-        let doubleTap = UITapGestureRecognizer(target: c, action: #selector(Coordinator.handleDoubleTap))
-        doubleTap.numberOfTapsRequired = 2
-        view.addGestureRecognizer(doubleTap)
-
-        // Single tap (place tile — waits for double-tap to fail)
+        // Single tap (select / place / interact — fires immediately)
         let singleTap = UITapGestureRecognizer(target: c, action: #selector(Coordinator.handleSingleTap))
         singleTap.numberOfTapsRequired = 1
-        singleTap.require(toFail: doubleTap)
         view.addGestureRecognizer(singleTap)
 
         // Long press (context menu)
         let longPress = UILongPressGestureRecognizer(target: c, action: #selector(Coordinator.handleLongPress))
         longPress.minimumPressDuration = 0.5
-        longPress.allowableMovement = 10
+        longPress.allowableMovement = 20
         view.addGestureRecognizer(longPress)
 
         return view
@@ -66,19 +62,25 @@ struct CanvasGestureOverlay: UIViewRepresentable {
     class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var parent: CanvasGestureOverlay
         private var isDraggingTile = false
+        private var isDraggingTextAnnotation = false
+        private var isDraggingDrawingStroke = false
+        private var isDrawingStroke = false
 
         init(parent: CanvasGestureOverlay) {
             self.parent = parent
         }
 
-        // Allow pinch + pan to fire simultaneously (Maps-style)
+        // Allow pinch + pan and long press + pan to fire simultaneously
         func gestureRecognizer(
             _ gestureRecognizer: UIGestureRecognizer,
             shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
         ) -> Bool {
             let isPinch = gestureRecognizer is UIPinchGestureRecognizer || other is UIPinchGestureRecognizer
             let isPan = gestureRecognizer is UIPanGestureRecognizer || other is UIPanGestureRecognizer
-            return isPinch && isPan
+            let isLongPress = gestureRecognizer is UILongPressGestureRecognizer || other is UILongPressGestureRecognizer
+            if isPinch && isPan { return true }
+            if isLongPress && isPan { return true }
+            return false
         }
 
         // MARK: - Pinch (Zoom)
@@ -101,12 +103,10 @@ struct CanvasGestureOverlay: UIViewRepresentable {
                     height: center.y - cy * newScale
                 )
                 vm.zoomScale = newScale
-                vm.lastPanOffset = vm.panOffset
                 g.scale = 1.0 // reset for next delta
 
             case .ended, .cancelled:
-                vm.lastZoomScale = vm.zoomScale
-                vm.lastPanOffset = vm.panOffset
+                break
 
             default: break
             }
@@ -122,26 +122,100 @@ struct CanvasGestureOverlay: UIViewRepresentable {
             case .began:
                 let loc = g.location(in: view)
                 isDraggingTile = false
-                if let selected = vm.selectedTile, let layer = vm.activeLayer {
+                isDraggingTextAnnotation = false
+                isDraggingDrawingStroke = false
+                isDrawingStroke = false
+
+                // Only allow item dragging with a single finger
+                guard g.numberOfTouches == 1 else { break }
+
+                // Check for tile drag first
+                if let selected = vm.selectedTile, let layer = vm.activeLayer, layer.layerType == .tile {
                     let pos = vm.screenToGrid(point: loc, cellSize: parent.cellSize)
                     if vm.tile(at: pos, on: layer)?.id == selected.id {
                         isDraggingTile = true
                         vm.isDraggingSelection = true
+                        let canvasX = (loc.x - vm.panOffset.width) / vm.zoomScale
+                        let canvasY = (loc.y - vm.panOffset.height) / vm.zoomScale
+                        vm.dragStartCanvasPoint = CGPoint(x: canvasX, y: canvasY)
+                        vm.dragCanvasOffset = .zero
+                        return
                     }
                 }
 
+                // Check for selected text annotation drag
+                if let selected = vm.selectedTextAnnotation {
+                    let screenX = CGFloat(selected.canvasX) * vm.zoomScale + vm.panOffset.width
+                    let screenY = CGFloat(selected.canvasY) * vm.zoomScale + vm.panOffset.height
+                    let fontSize = CGFloat(selected.fontSize) * vm.zoomScale
+                    let textWidth = max(fontSize * CGFloat(selected.text.count) * 0.6, 40)
+                    let textHeight = max(fontSize * 1.3, 24)
+                    let pad: CGFloat = 20
+                    let hitRect = CGRect(x: screenX - pad, y: screenY - pad,
+                                         width: textWidth + pad * 2, height: textHeight + pad * 2)
+                    if hitRect.contains(loc) {
+                        isDraggingTextAnnotation = true
+                        vm.isDraggingSelection = true
+                        let canvasX = (loc.x - vm.panOffset.width) / vm.zoomScale
+                        let canvasY = (loc.y - vm.panOffset.height) / vm.zoomScale
+                        vm.dragStartCanvasPoint = CGPoint(x: canvasX, y: canvasY)
+                        vm.dragCanvasOffset = .zero
+                        return
+                    }
+                }
+
+                // Check for selected drawing stroke drag
+                if let selected = vm.selectedDrawingStroke {
+                    // Check if touch is near any point of the selected stroke
+                    var nearStroke = false
+                    for point in selected.points {
+                        let screenX = CGFloat(point.x) * vm.zoomScale + vm.panOffset.width
+                        let screenY = CGFloat(point.y) * vm.zoomScale + vm.panOffset.height
+                        let distance = hypot(loc.x - screenX, loc.y - screenY)
+                        if distance < 40 {
+                            nearStroke = true
+                            break
+                        }
+                    }
+                    if nearStroke {
+                        isDraggingDrawingStroke = true
+                        vm.isDraggingSelection = true
+                        let canvasX = (loc.x - vm.panOffset.width) / vm.zoomScale
+                        let canvasY = (loc.y - vm.panOffset.height) / vm.zoomScale
+                        vm.dragStartCanvasPoint = CGPoint(x: canvasX, y: canvasY)
+                        vm.dragCanvasOffset = .zero
+                        return
+                    }
+                }
+
+                // Check for drawing mode (single finger only)
+                if vm.isDrawingLayerActive && vm.isDrawingModeActive && g.numberOfTouches == 1 {
+                    isDrawingStroke = true
+                    let canvasX = Double((loc.x - vm.panOffset.width) / vm.zoomScale)
+                    let canvasY = Double((loc.y - vm.panOffset.height) / vm.zoomScale)
+                    vm.activeStrokePoints = [StrokePoint(x: canvasX, y: canvasY, pressure: 1.0)]
+                }
+
             case .changed:
-                if isDraggingTile {
+                if isDraggingTile || isDraggingTextAnnotation || isDraggingDrawingStroke {
                     let loc = g.location(in: view)
-                    let pos = vm.screenToGrid(point: loc, cellSize: parent.cellSize)
-                    vm.dragGridPosition = pos
+                    let canvasX = (loc.x - vm.panOffset.width) / vm.zoomScale
+                    let canvasY = (loc.y - vm.panOffset.height) / vm.zoomScale
+                    vm.dragCanvasOffset = CGSize(
+                        width: canvasX - vm.dragStartCanvasPoint.x,
+                        height: canvasY - vm.dragStartCanvasPoint.y
+                    )
+                } else if isDrawingStroke {
+                    let loc = g.location(in: view)
+                    let canvasX = Double((loc.x - vm.panOffset.width) / vm.zoomScale)
+                    let canvasY = Double((loc.y - vm.panOffset.height) / vm.zoomScale)
+                    vm.activeStrokePoints.append(StrokePoint(x: canvasX, y: canvasY, pressure: 1.0))
                 } else {
                     let t = g.translation(in: view)
                     vm.panOffset = CGSize(
                         width: vm.panOffset.width + t.x,
                         height: vm.panOffset.height + t.y
                     )
-                    vm.lastPanOffset = vm.panOffset
                     g.setTranslation(.zero, in: view) // reset for next delta
                 }
 
@@ -149,10 +223,19 @@ struct CanvasGestureOverlay: UIViewRepresentable {
                 if isDraggingTile {
                     parent.onTileDragEnded()
                     vm.isDraggingSelection = false
-                    vm.dragGridPosition = nil
                     isDraggingTile = false
-                } else {
-                    vm.lastPanOffset = vm.panOffset
+                } else if isDraggingTextAnnotation {
+                    parent.onTextDragEnded()
+                    vm.isDraggingSelection = false
+                    isDraggingTextAnnotation = false
+                } else if isDraggingDrawingStroke {
+                    parent.onStrokeDragEnded()
+                    vm.isDraggingSelection = false
+                    isDraggingDrawingStroke = false
+                } else if isDrawingStroke {
+                    parent.onStrokeCompleted()
+                    vm.activeStrokePoints = []
+                    isDrawingStroke = false
                 }
 
             default: break
@@ -160,11 +243,6 @@ struct CanvasGestureOverlay: UIViewRepresentable {
         }
 
         // MARK: - Taps
-
-        @objc func handleDoubleTap(_ g: UITapGestureRecognizer) {
-            guard g.state == .ended, let view = g.view else { return }
-            parent.onDoubleTap(g.location(in: view))
-        }
 
         @objc func handleSingleTap(_ g: UITapGestureRecognizer) {
             guard g.state == .ended, let view = g.view else { return }

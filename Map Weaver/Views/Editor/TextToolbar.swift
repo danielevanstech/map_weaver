@@ -1,19 +1,26 @@
 import SwiftUI
 
 /// Compact toolbar shown when a text layer is active.
-/// Provides mode switching (Add / Select / Edit), color/size defaults, and delete.
+/// Provides mode switching (Add / Move / Edit) and color/size defaults.
 struct TextToolbar: View {
     @Bindable var viewModel: MapEditorViewModel
-    var onDelete: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
-            // Mode buttons
-            HStack(spacing: 4) {
-                modeButton(.add, icon: "plus.circle", label: "Add")
-                modeButton(.select, icon: "hand.tap", label: "Select")
-                modeButton(.edit, icon: "pencil", label: "Edit")
+            // Add new text annotation
+            Button {
+                viewModel.clearSelection()
+                createNewAnnotation()
+            } label: {
+                VStack(spacing: 2) {
+                    Image(systemName: "plus.circle")
+                        .font(.system(size: 18))
+                    Text("Add")
+                        .font(.system(size: 9))
+                }
+                .frame(minWidth: 44, minHeight: 44)
             }
+            .tint(.secondary)
 
             Divider().frame(height: 28)
 
@@ -35,42 +42,27 @@ struct TextToolbar: View {
             }
 
             Spacer()
-
-            // Delete selected annotation
-            if viewModel.selectedTextAnnotation != nil {
-                Button(role: .destructive) {
-                    onDelete()
-                } label: {
-                    Image(systemName: "trash")
-                        .font(.system(size: 20))
-                        .frame(minWidth: 44, minHeight: 44)
-                }
-            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(.ultraThinMaterial)
     }
 
-    // MARK: - Mode Button
+    // MARK: - Create New Annotation
 
-    @ViewBuilder
-    private func modeButton(_ mode: MapEditorViewModel.TextToolMode, icon: String, label: String) -> some View {
-        Button {
-            viewModel.textToolMode = mode
-            if mode != .select {
-                viewModel.clearSelection()
-            }
-        } label: {
-            VStack(spacing: 2) {
-                Image(systemName: icon)
-                    .font(.system(size: 18))
-                Text(label)
-                    .font(.system(size: 9))
-            }
-            .frame(minWidth: 44, minHeight: 44)
-        }
-        .tint(viewModel.textToolMode == mode ? .blue : .secondary)
+    private func createNewAnnotation() {
+        let centerX = (viewModel.canvasSize.width / 2 - viewModel.panOffset.width) / viewModel.zoomScale
+        let centerY = (viewModel.canvasSize.height / 2 - viewModel.panOffset.height) / viewModel.zoomScale
+        let annotation = TextAnnotation(canvasX: Double(centerX), canvasY: Double(centerY), text: "")
+        annotation.colorRed = viewModel.newTextColorRed
+        annotation.colorGreen = viewModel.newTextColorGreen
+        annotation.colorBlue = viewModel.newTextColorBlue
+        annotation.colorAlpha = viewModel.newTextColorAlpha
+        annotation.fontSize = viewModel.newTextFontSize
+        viewModel.editingTextAnnotation = annotation
+        viewModel.isNewTextAnnotation = true
+        viewModel.textEditorPosition = CGPoint(x: viewModel.canvasSize.width / 2, y: viewModel.canvasSize.height / 2)
+        viewModel.isShowingTextEditor = true
     }
 
     // MARK: - Color Binding

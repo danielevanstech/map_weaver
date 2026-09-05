@@ -32,18 +32,14 @@ struct InteractiveCropView: View {
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(
-                            GeometryReader { imgGeo in
-                                Color.clear.onAppear {
-                                    imageFrame = imgGeo.frame(in: .named("cropSpace"))
-                                    initializeCropRect()
-                                }
-                                .onChange(of: imgGeo.size) {
-                                    imageFrame = imgGeo.frame(in: .named("cropSpace"))
-                                    initializeCropRect()
-                                }
-                            }
-                        )
+                        .onAppear {
+                            imageFrame = computeImageDisplayRect(in: geometry.size)
+                            initializeCropRect()
+                        }
+                        .onChange(of: geometry.size) {
+                            imageFrame = computeImageDisplayRect(in: geometry.size)
+                            initializeCropRect()
+                        }
 
                     // Dimming overlay with crop cutout
                     if cropRect != .zero {
@@ -225,6 +221,32 @@ struct InteractiveCropView: View {
 
         if newRect.width >= minCropDimension && newRect.height >= minCropDimension {
             cropRect = newRect
+        }
+    }
+
+    // MARK: - Image Display Rect
+
+    /// Computes the actual rendered image area within the container,
+    /// accounting for `.aspectRatio(contentMode: .fit)` centering.
+    private func computeImageDisplayRect(in containerSize: CGSize) -> CGRect {
+        guard sourceImage.size.width > 0, sourceImage.size.height > 0 else {
+            return CGRect(origin: .zero, size: containerSize)
+        }
+        let imageAspect = sourceImage.size.width / sourceImage.size.height
+        let containerAspect = containerSize.width / containerSize.height
+
+        if imageAspect > containerAspect {
+            // Image fits to width, letterboxed vertically
+            let displayWidth = containerSize.width
+            let displayHeight = displayWidth / imageAspect
+            let yOffset = (containerSize.height - displayHeight) / 2
+            return CGRect(x: 0, y: yOffset, width: displayWidth, height: displayHeight)
+        } else {
+            // Image fits to height, pillarboxed horizontally
+            let displayHeight = containerSize.height
+            let displayWidth = displayHeight * imageAspect
+            let xOffset = (containerSize.width - displayWidth) / 2
+            return CGRect(x: xOffset, y: 0, width: displayWidth, height: displayHeight)
         }
     }
 

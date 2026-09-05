@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 import PhotosUI
 
 struct AssetImportView: View {
@@ -10,6 +11,7 @@ struct AssetImportView: View {
     @State private var importedImage: UIImage?
     @State private var showingCamera = false
     @State private var showingCropView = false
+    @State private var errorMessage: String?
 
     var body: some View {
         NavigationStack {
@@ -35,15 +37,17 @@ struct AssetImportView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
 
-                    Button {
-                        showingCamera = true
-                    } label: {
-                        Label("Take a Photo", systemImage: "camera")
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(Color.green)
-                            .foregroundStyle(.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                        Button {
+                            showingCamera = true
+                        } label: {
+                            Label("Take a Photo", systemImage: "camera")
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color.green)
+                                .foregroundStyle(.white)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
                     }
                 }
                 .padding(.horizontal, 32)
@@ -62,7 +66,7 @@ struct AssetImportView: View {
                     await loadFromPhotoPicker(item: newItem)
                 }
             }
-            .sheet(isPresented: $showingCamera) {
+            .fullScreenCover(isPresented: $showingCamera) {
                 CameraView(image: $importedImage)
             }
             .onChange(of: importedImage) { _, newImage in
@@ -81,6 +85,14 @@ struct AssetImportView: View {
                     }
                 }
             }
+            .alert("Import Error", isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
+            )) {
+                Button("OK") { errorMessage = nil }
+            } message: {
+                Text(errorMessage ?? "")
+            }
         }
     }
 
@@ -90,9 +102,11 @@ struct AssetImportView: View {
             if let data = try await item.loadTransferable(type: Data.self),
                let image = UIImage(data: data) {
                 importedImage = image
+            } else {
+                errorMessage = "The selected image could not be read. Try a different image."
             }
         } catch {
-            print("Failed to load image from picker: \(error)")
+            errorMessage = "Failed to load image: \(error.localizedDescription)"
         }
     }
 }
@@ -106,6 +120,9 @@ struct CameraView: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIImagePickerController {
         let picker = UIImagePickerController()
         picker.sourceType = .camera
+        picker.cameraCaptureMode = .photo
+        picker.cameraDevice = .rear
+        picker.allowsEditing = false
         picker.delegate = context.coordinator
         return picker
     }

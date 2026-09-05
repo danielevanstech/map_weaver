@@ -16,7 +16,7 @@ struct LayerPanelView: View {
 
     private var sortedLayers: [MapLayer] {
         project.layers
-            .filter { $0.layerType != .background }
+            .filter { $0.layerType != .background && $0.layerType != .grid }
             .sorted { $0.sortOrder > $1.sortOrder }
     }
 
@@ -27,8 +27,8 @@ struct LayerPanelView: View {
         project.layers.filter { $0.layerType == .tile }.count
     }
 
-    private var nonBackgroundLayerCount: Int {
-        project.layers.filter { $0.layerType != .background }.count
+    private var nonSpecialLayerCount: Int {
+        project.layers.filter { $0.layerType != .background && $0.layerType != .grid }.count
     }
 
     var body: some View {
@@ -47,6 +47,13 @@ struct LayerPanelView: View {
                     .onDelete(perform: deleteLayer)
                 } footer: {
                     Text("\(tileLayerCount)/\(Self.displayedMaxLayers) tile layers")
+                }
+
+                // Grid layer (pinned, not movable/deletable)
+                if let gridLayer = project.gridLayer {
+                    Section("Grid") {
+                        gridLayerRow(gridLayer)
+                    }
                 }
 
                 // Background layer (pinned at bottom, not movable/deletable)
@@ -85,7 +92,7 @@ struct LayerPanelView: View {
                     } label: {
                         Image(systemName: "plus")
                     }
-                    .disabled(nonBackgroundLayerCount >= Self.maxLayers)
+                    .disabled(nonSpecialLayerCount >= Self.maxLayers)
                 }
 
                 ToolbarItem(placement: .confirmationAction) {
@@ -109,47 +116,145 @@ struct LayerPanelView: View {
         }
     }
 
+    // MARK: - Grid Layer Row
+
+    @ViewBuilder
+    private func gridLayerRow(_ gridLayer: MapLayer) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // Header row: icon, name, visibility
+            HStack(spacing: 10) {
+                Image(systemName: "grid")
+                    .font(.system(size: 18))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24)
+
+                Text("Grid")
+                    .font(.body)
+
+                Text("· Line overlay")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Spacer(minLength: 4)
+
+                Button {
+                    gridLayer.isVisible.toggle()
+                } label: {
+                    Image(systemName: gridLayer.isVisible ? "eye.fill" : "eye.slash")
+                        .font(.system(size: 18))
+                        .foregroundStyle(gridLayer.isVisible ? .primary : .secondary)
+                        .frame(minWidth: 36, minHeight: 36)
+                }
+                .buttonStyle(.borderless)
+            }
+
+            // Grid-specific controls (only shown when visible)
+            if gridLayer.isVisible {
+                // Opacity slider
+                HStack(spacing: 8) {
+                    Text("Opacity")
+                        .font(.subheadline)
+                    Text("\(Int(gridLayer.opacity * 100))%")
+                        .font(.caption)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .frame(width: 36)
+                    Slider(value: Binding(
+                        get: { gridLayer.opacity },
+                        set: { gridLayer.opacity = $0 }
+                    ), in: 0.0...1.0)
+                }
+                ColorPicker("Line Color", selection: Binding(
+                    get: {
+                        Color(
+                            red: gridLayer.gridColorRed,
+                            green: gridLayer.gridColorGreen,
+                            blue: gridLayer.gridColorBlue,
+                            opacity: gridLayer.gridColorAlpha
+                        )
+                    },
+                    set: { newColor in
+                        let uiColor = UIColor(newColor)
+                        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+                        uiColor.getRed(&r, green: &g, blue: &b, alpha: &a)
+                        gridLayer.gridColorRed = Double(r)
+                        gridLayer.gridColorGreen = Double(g)
+                        gridLayer.gridColorBlue = Double(b)
+                        gridLayer.gridColorAlpha = Double(a)
+                    }
+                ))
+                .font(.subheadline)
+
+                HStack {
+                    Text("Thickness")
+                        .font(.subheadline)
+                    Slider(value: Binding(
+                        get: { gridLayer.gridLineWidth },
+                        set: { gridLayer.gridLineWidth = $0 }
+                    ), in: 0.5...5.0, step: 0.5)
+                    Text(String(format: "%.1f", gridLayer.gridLineWidth))
+                        .font(.caption)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .frame(width: 28)
+                }
+
+                Toggle("Coordinate Labels", isOn: Binding(
+                    get: { gridLayer.gridShowCoordinateLabels },
+                    set: { gridLayer.gridShowCoordinateLabels = $0 }
+                ))
+                .font(.subheadline)
+            }
+        }
+        .padding(.vertical, 6)
+    }
+
     // MARK: - Background Layer Row
 
     @ViewBuilder
     private func backgroundLayerRow(_ bgLayer: MapLayer) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
                 Image(systemName: "photo")
+                    .font(.system(size: 18))
                     .foregroundStyle(.secondary)
-                    .frame(width: 16)
+                    .frame(width: 24)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Background")
-                        .font(.subheadline)
-                    Text(project.backgroundImageFileName != nil ? "Image set" : "No image")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
+                Text("Background")
+                    .font(.body)
 
-                Spacer()
+                Text("· \(project.backgroundImageFileName != nil ? "Image set" : "No image")")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
-                if bgLayer.isVisible {
-                    Text("\(Int(bgLayer.opacity * 100))%")
-                        .font(.caption2)
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                        .frame(width: 30)
-
-                    Slider(value: Binding(
-                        get: { bgLayer.opacity },
-                        set: { bgLayer.opacity = $0 }
-                    ), in: 0.05...1.0)
-                        .frame(width: 60)
-                }
+                Spacer(minLength: 4)
 
                 Button {
                     bgLayer.isVisible.toggle()
                 } label: {
                     Image(systemName: bgLayer.isVisible ? "eye.fill" : "eye.slash")
+                        .font(.system(size: 18))
                         .foregroundStyle(bgLayer.isVisible ? .primary : .secondary)
+                        .frame(minWidth: 36, minHeight: 36)
                 }
                 .buttonStyle(.borderless)
+            }
+
+            // Opacity slider
+            if bgLayer.isVisible {
+                HStack(spacing: 8) {
+                    Text("Opacity")
+                        .font(.subheadline)
+                    Text("\(Int(bgLayer.opacity * 100))%")
+                        .font(.caption)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .frame(width: 36)
+                    Slider(value: Binding(
+                        get: { bgLayer.opacity },
+                        set: { bgLayer.opacity = $0 }
+                    ), in: 0.05...1.0)
+                }
             }
 
             // Background-specific controls
@@ -163,6 +268,7 @@ struct LayerPanelView: View {
                     }
                 }
                 .pickerStyle(.menu)
+                .font(.subheadline)
 
                 HStack {
                     PhotosPicker(
@@ -171,7 +277,7 @@ struct LayerPanelView: View {
                         photoLibrary: .shared()
                     ) {
                         Label("Change Image", systemImage: "photo.badge.arrow.down")
-                            .font(.caption)
+                            .font(.subheadline)
                     }
 
                     Spacer()
@@ -180,7 +286,7 @@ struct LayerPanelView: View {
                         removeBackgroundImage()
                     } label: {
                         Label("Remove", systemImage: "trash")
-                            .font(.caption)
+                            .font(.subheadline)
                     }
                 }
             } else {
@@ -190,11 +296,11 @@ struct LayerPanelView: View {
                     photoLibrary: .shared()
                 ) {
                     Label("Set Background Image", systemImage: "photo.badge.plus")
-                        .font(.caption)
+                        .font(.subheadline)
                 }
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
     }
 
     // MARK: - Background Image Management
@@ -229,7 +335,7 @@ struct LayerPanelView: View {
     private func addLayer() {
         let trimmed = newLayerName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        guard nonBackgroundLayerCount < Self.maxLayers else { return }
+        guard nonSpecialLayerCount < Self.maxLayers else { return }
 
         let nextOrder = (project.layers.map(\.sortOrder).max() ?? -1) + 1
         let layer = MapLayer(name: trimmed, sortOrder: nextOrder, layerTypeRaw: newLayerType.rawValue)
@@ -254,7 +360,7 @@ struct LayerPanelView: View {
         for index in offsets {
             let layer = layers[index]
             if activeLayer?.id == layer.id {
-                activeLayer = project.layers.first { $0.id != layer.id && $0.layerType != .background }
+                activeLayer = project.layers.first { $0.id != layer.id && $0.layerType != .background && $0.layerType != .grid }
             }
             modelContext.delete(layer)
         }

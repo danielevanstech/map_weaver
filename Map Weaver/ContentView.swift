@@ -8,6 +8,9 @@ struct ContentView: View {
                 .navigationDestination(for: MapProject.self) { project in
                     MapEditorView(project: project)
                 }
+                .navigationDestination(for: ProjectFolder.self) { folder in
+                    FolderContentView(folder: folder)
+                }
         }
     }
 }

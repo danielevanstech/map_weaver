@@ -1,21 +1,14 @@
 import UIKit
 
 extension UIImage {
-    /// Crops the image to the specified rect (in image coordinates).
+    /// Crops the image to the specified rect (in image-point coordinates).
+    /// Uses UIKit drawing to correctly handle image orientation.
     func cropped(to rect: CGRect) -> UIImage? {
-        guard let cgImage = cgImage else { return nil }
-
-        // Scale rect to pixel coordinates
-        let scale = self.scale
-        let scaledRect = CGRect(
-            x: rect.origin.x * scale,
-            y: rect.origin.y * scale,
-            width: rect.width * scale,
-            height: rect.height * scale
-        )
-
-        guard let cropped = cgImage.cropping(to: scaledRect) else { return nil }
-        return UIImage(cgImage: cropped, scale: scale, orientation: imageOrientation)
+        guard rect.width > 0, rect.height > 0 else { return nil }
+        let renderer = UIGraphicsImageRenderer(size: rect.size)
+        return renderer.image { _ in
+            draw(at: CGPoint(x: -rect.origin.x, y: -rect.origin.y))
+        }
     }
 
     /// Resizes the image to the target size.

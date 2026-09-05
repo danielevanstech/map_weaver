@@ -12,19 +12,20 @@ struct DrawingToolbar: View {
                 viewModel.isDrawingModeActive.toggle()
             } label: {
                 Image(systemName: viewModel.isDrawingModeActive ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle")
-                    .font(.title3)
+                    .font(.system(size: 24))
+                    .frame(minWidth: 44, minHeight: 44)
             }
             .tint(viewModel.isDrawingModeActive ? .blue : .secondary)
             .accessibilityLabel(viewModel.isDrawingModeActive ? "Drawing Mode On" : "Drawing Mode Off")
 
-            Divider().frame(height: 20)
+            Divider().frame(height: 28)
 
             // Stroke color
             ColorPicker("", selection: strokeColorBinding)
                 .labelsHidden()
-                .frame(width: 30)
+                .frame(width: 36)
 
-            Divider().frame(height: 20)
+            Divider().frame(height: 28)
 
             // Line width
             HStack(spacing: 4) {

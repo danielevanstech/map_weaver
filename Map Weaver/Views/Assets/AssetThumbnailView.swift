@@ -12,21 +12,22 @@ struct AssetThumbnailView: View {
                 Image(uiImage: thumbnail)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
-                    .frame(width: 60, height: 60)
+                    .frame(width: 76, height: 76)
                     .clipped()
             } else {
                 Rectangle()
                     .fill(Color.secondary.opacity(0.2))
-                    .frame(width: 60, height: 60)
+                    .frame(width: 76, height: 76)
                     .overlay {
                         Image(systemName: "photo")
+                            .font(.title3)
                             .foregroundStyle(.secondary)
                     }
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: 10)
                 .stroke(isSelected ? Color.blue : Color.clear, lineWidth: 3)
         )
         .task {

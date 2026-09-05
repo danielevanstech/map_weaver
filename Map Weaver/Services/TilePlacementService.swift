@@ -72,6 +72,63 @@ final class TilePlacementService {
         return true
     }
 
+    // MARK: - Move Tile
+
+    /// Moves a placed tile from its current position to a new grid position.
+    /// Returns true if the move succeeded.
+    @discardableResult
+    func moveTile(_ tile: PlacedTile, to newPosition: GridPosition, layer: MapLayer) -> Bool {
+        guard !layer.isLocked else { return false }
+        guard tile.gridX != newPosition.x || tile.gridY != newPosition.y else { return false }
+
+        let w = tile.asset?.gridWidth ?? 1
+        let h = tile.asset?.gridHeight ?? 1
+
+        // Remove old lookup keys
+        for dx in 0..<w {
+            for dy in 0..<h {
+                let key = viewModel.tileKey(layerID: layer.id, x: tile.gridX + dx, y: tile.gridY + dy)
+                viewModel.tileLookup.removeValue(forKey: key)
+            }
+        }
+
+        // Remove any existing tiles at the destination footprint
+        for dx in 0..<w {
+            for dy in 0..<h {
+                let key = viewModel.tileKey(layerID: layer.id, x: newPosition.x + dx, y: newPosition.y + dy)
+                if let existing = viewModel.tileLookup[key], existing.id != tile.id {
+                    removeTileFromLookup(existing, layer: layer)
+                    modelContext.delete(existing)
+                }
+            }
+        }
+
+        // Update position
+        tile.gridX = newPosition.x
+        tile.gridY = newPosition.y
+
+        // Register new lookup keys
+        for dx in 0..<w {
+            for dy in 0..<h {
+                let key = viewModel.tileKey(layerID: layer.id, x: newPosition.x + dx, y: newPosition.y + dy)
+                viewModel.tileLookup[key] = tile
+            }
+        }
+
+        viewModel.project.modifiedAt = Date()
+        return true
+    }
+
+    // MARK: - Duplicate Tile
+
+    /// Duplicates a placed tile, placing the copy offset to the right by the tile's width.
+    @discardableResult
+    func duplicateTile(_ tile: PlacedTile, on layer: MapLayer) -> PlacedTile? {
+        guard let asset = tile.asset, !layer.isLocked else { return nil }
+        let newPosition = GridPosition(x: tile.gridX + asset.gridWidth, y: tile.gridY)
+        return placeTile(at: newPosition, asset: asset, layer: layer)
+    }
+
     // MARK: - Batch Paint
 
     /// Places tiles along a path of grid positions. Returns count of tiles placed.

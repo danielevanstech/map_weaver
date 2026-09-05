@@ -29,13 +29,11 @@ struct MapEditorView: View {
                             }
                         case .drawing:
                             DrawingToolbar(viewModel: viewModel)
-                        case .text, .background, .none:
+                        case .text:
+                            TextToolbar(viewModel: viewModel)
+                        case .background, .grid, .none:
                             EmptyView()
                         }
-                        EditorToolbar(
-                            viewModel: viewModel,
-                            modelContext: modelContext
-                        )
                     }
                 }
                 .toolbar {
@@ -95,6 +93,7 @@ struct MapEditorView: View {
         .onAppear {
             if viewModel == nil {
                 ensureBackgroundLayer()
+                ensureGridLayer()
                 viewModel = MapEditorViewModel(project: project)
             }
         }
@@ -109,5 +108,24 @@ struct MapEditorView: View {
         bgLayer.isLocked = true
         modelContext.insert(bgLayer)
         project.layers.append(bgLayer)
+    }
+
+    // MARK: - Grid Layer Migration
+
+    private func ensureGridLayer() {
+        guard project.gridLayer == nil else { return }
+        let gridLayer = MapLayer(name: "Grid", sortOrder: -2, layerTypeRaw: LayerType.grid.rawValue)
+        gridLayer.isVisible = project.showGridLines
+        gridLayer.gridShowCoordinateLabels = project.showCoordinateLabels
+        gridLayer.isLocked = true
+        gridLayer.opacity = 0.3
+        gridLayer.gridLineWidth = 1.5
+        if project.gridLinesBlack {
+            gridLayer.gridColorRed = 0.0
+            gridLayer.gridColorGreen = 0.0
+            gridLayer.gridColorBlue = 0.0
+        }
+        modelContext.insert(gridLayer)
+        project.layers.append(gridLayer)
     }
 }

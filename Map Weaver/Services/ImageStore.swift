@@ -71,6 +71,44 @@ final class ImageStore: Sendable {
         try? fileManager.removeItem(at: dir)
     }
 
+    // MARK: - Background Images
+
+    private var backgroundDirectory: URL {
+        fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("BackgroundImages", isDirectory: true)
+    }
+
+    private func ensureBackgroundDirectory() throws {
+        if !fileManager.fileExists(atPath: backgroundDirectory.path) {
+            try fileManager.createDirectory(at: backgroundDirectory, withIntermediateDirectories: true)
+        }
+    }
+
+    /// Saves a background image for a project and returns the filename.
+    func saveBackgroundImage(_ image: UIImage, projectID: UUID) throws -> String {
+        try ensureBackgroundDirectory()
+        let fileName = "\(projectID.uuidString).png"
+        let fileURL = backgroundDirectory.appendingPathComponent(fileName)
+        guard let data = image.pngData() else {
+            throw ImageStoreError.encodingFailed
+        }
+        try data.write(to: fileURL)
+        return fileName
+    }
+
+    /// Loads a background image by filename.
+    func loadBackgroundImage(fileName: String) -> UIImage? {
+        let fileURL = backgroundDirectory.appendingPathComponent(fileName)
+        guard fileManager.fileExists(atPath: fileURL.path) else { return nil }
+        return UIImage(contentsOfFile: fileURL.path)
+    }
+
+    /// Deletes a background image by filename.
+    func deleteBackgroundImage(fileName: String) {
+        let fileURL = backgroundDirectory.appendingPathComponent(fileName)
+        try? fileManager.removeItem(at: fileURL)
+    }
+
     // MARK: - Copy (for import)
 
     func copyImage(from sourceURL: URL, projectID: UUID, assetID: UUID) throws -> String {
